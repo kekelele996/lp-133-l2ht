@@ -60,8 +60,10 @@ CREATE TABLE IF NOT EXISTS orders (
   need_id INT NOT NULL COMMENT '需求ID',
   user_id INT NOT NULL COMMENT '需求发布者ID',
   volunteer_id INT NOT NULL COMMENT '志愿者ID',
-  status ENUM('in_progress', 'completed', 'cancelled') DEFAULT 'in_progress' COMMENT '状态',
+  status ENUM('in_progress', 'pending_confirm', 'completed', 'cancelled') DEFAULT 'in_progress' COMMENT '状态: in_progress-进行中, pending_confirm-待居民确认, completed-已完成, cancelled-已取消',
   service_hours DECIMAL(8, 2) DEFAULT 0 COMMENT '服务时长(小时)',
+  service_result VARCHAR(500) COMMENT '服务结果说明(志愿者登记)',
+  settled TINYINT DEFAULT 0 COMMENT '是否已结算积分时长: 0-未结算, 1-已结算',
   start_time DATETIME COMMENT '开始时间',
   end_time DATETIME COMMENT '结束时间',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -86,6 +88,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   FOREIGN KEY (order_id) REFERENCES orders(id),
   FOREIGN KEY (reviewer_id) REFERENCES users(id),
   FOREIGN KEY (target_id) REFERENCES users(id),
+  UNIQUE KEY uniq_order_reviewer (order_id, reviewer_id),
   INDEX idx_target_id (target_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='评价表';
 

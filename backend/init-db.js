@@ -74,8 +74,10 @@ const initData = async () => {
         need_id INT NOT NULL,
         user_id INT NOT NULL,
         volunteer_id INT NOT NULL,
-        status ENUM('in_progress', 'completed', 'cancelled') DEFAULT 'in_progress',
+        status ENUM('in_progress', 'pending_confirm', 'completed', 'cancelled') DEFAULT 'in_progress',
         service_hours DECIMAL(8, 2) DEFAULT 0,
+        service_result VARCHAR(500),
+        settled TINYINT DEFAULT 0,
         start_time DATETIME,
         end_time DATETIME,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,6 +105,7 @@ const initData = async () => {
         FOREIGN KEY (order_id) REFERENCES orders(id),
         FOREIGN KEY (reviewer_id) REFERENCES users(id),
         FOREIGN KEY (target_id) REFERENCES users(id),
+        UNIQUE KEY uniq_order_reviewer (order_id, reviewer_id),
         INDEX idx_target_id (target_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
@@ -167,6 +170,38 @@ const initData = async () => {
     await pool.query('TRUNCATE TABLE users');
     await pool.query('SET FOREIGN_KEY_CHECKS = 1');
     console.log('✅ 旧数据清空完成');
+
+    // 兼容旧库结构：为已存在的 orders/reviews 表补齐服务收口所需字段
+    const ensureColumn = async (table, column, ddl) => {
+      const [rows] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+        [table, column],
+      );
+      if (rows[0].cnt === 0) {
+        await pool.query(`ALTER TABLE \`${table}\` ${ddl}`);
+      }
+    };
+
+    await ensureColumn('orders', 'service_result', "ADD COLUMN service_result VARCHAR(500) NULL COMMENT '服务结果说明' AFTER service_hours");
+    await ensureColumn('orders', 'settled', "ADD COLUMN settled TINYINT DEFAULT 0 COMMENT '是否已结算: 0-未结算, 1-已结算' AFTER service_result");
+
+    const [statusCol] = await pool.query(
+      `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'status'`,
+    );
+    if (statusCol.length > 0 && !statusCol[0].COLUMN_TYPE.includes('pending_confirm')) {
+      await pool.query("ALTER TABLE orders MODIFY COLUMN status ENUM('in_progress', 'pending_confirm', 'completed', 'cancelled') DEFAULT 'in_progress'");
+    }
+
+    const [uniqIdx] = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reviews' AND INDEX_NAME = 'uniq_order_reviewer'`,
+    );
+    if (uniqIdx[0].cnt === 0) {
+      await pool.query('ALTER TABLE reviews ADD UNIQUE KEY uniq_order_reviewer (order_id, reviewer_id)');
+    }
+    console.log('✅ 旧库结构迁移完成');
 
     // 密码哈希 (123456)
     const pwdHash = '$2a$10$8OgNyMetWSC05tEgwJvGTe7a6knQkr29APVcmDL2ptUD1we0XKJj6';
