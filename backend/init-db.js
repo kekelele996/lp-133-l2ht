@@ -74,8 +74,9 @@ const initData = async () => {
         need_id INT NOT NULL,
         user_id INT NOT NULL,
         volunteer_id INT NOT NULL,
-        status ENUM('in_progress', 'completed', 'cancelled') DEFAULT 'in_progress',
+        status ENUM('in_progress', 'pending_confirm', 'completed', 'cancelled') DEFAULT 'in_progress',
         service_hours DECIMAL(8, 2) DEFAULT 0,
+        result VARCHAR(500),
         start_time DATETIME,
         end_time DATETIME,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,6 +104,7 @@ const initData = async () => {
         FOREIGN KEY (order_id) REFERENCES orders(id),
         FOREIGN KEY (reviewer_id) REFERENCES users(id),
         FOREIGN KEY (target_id) REFERENCES users(id),
+        UNIQUE KEY uk_order_reviewer (order_id, reviewer_id),
         INDEX idx_target_id (target_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
@@ -155,6 +157,39 @@ const initData = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log('✅ 兑换记录表创建完成');
+
+    // 兼容旧库的迁移（CREATE TABLE IF NOT EXISTS 不会更新已存在的表）
+    const [statusCol] = await pool.query(`
+      SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = 'volunteer_db' AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'status'
+    `);
+    if (statusCol.length > 0 && !statusCol[0].COLUMN_TYPE.includes('pending_confirm')) {
+      await pool.query("ALTER TABLE orders MODIFY COLUMN status ENUM('in_progress', 'pending_confirm', 'completed', 'cancelled') DEFAULT 'in_progress'");
+      console.log('✅ 订单状态枚举已升级(含 pending_confirm)');
+    }
+
+    const [resultCol] = await pool.query(`
+      SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = 'volunteer_db' AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'result'
+    `);
+    if (resultCol.length === 0) {
+      await pool.query('ALTER TABLE orders ADD COLUMN result VARCHAR(500) NULL AFTER service_hours');
+      console.log('✅ 订单表已补充 result 字段');
+    }
+
+    const [uniqIdx] = await pool.query(`
+      SELECT INDEX_NAME FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = 'volunteer_db' AND TABLE_NAME = 'reviews' AND INDEX_NAME = 'uk_order_reviewer'
+    `);
+    if (uniqIdx.length === 0) {
+      // 先清理历史重复评价（仅保留最早一条），再加唯一索引保证一人一单只评一次
+      await pool.query(`
+        DELETE r1 FROM reviews r1
+        INNER JOIN reviews r2 ON r1.order_id = r2.order_id AND r1.reviewer_id = r2.reviewer_id AND r1.id > r2.id
+      `);
+      await pool.query('ALTER TABLE reviews ADD UNIQUE KEY uk_order_reviewer (order_id, reviewer_id)');
+      console.log('✅ 评价表已补充唯一索引 uk_order_reviewer');
+    }
 
     // 清空旧数据
     await pool.query('SET FOREIGN_KEY_CHECKS = 0');

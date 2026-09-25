@@ -32,7 +32,18 @@ module.exports = {
   orders: {
     notFound: '订单不存在',
     forbidden: '无权限操作',
+    invalidHours: '服务时长需在0.5到24小时之间',
+    missingResult: '请填写服务结果说明',
+    finished: '服务结果已登记，待居民确认',
+    onlyVolunteer: '仅接单志愿者可登记服务结果',
+    onlyResident: '仅需求发布人可确认完成',
+    stateConflict: '订单状态已变更，请刷新后重试',
+    confirmed: '已确认完成，积分与时长已结算',
     completed: '服务已完成',
+    notCompleted: '订单尚未完成，不能评价',
+    notParticipant: '您不是该订单的参与人，不能评价',
+    duplicateReview: '您已评价过该订单，不能重复评价',
+    invalidRating: '评分需为1-5的整数',
     reviewed: '评价成功',
   },
   messages: {
